@@ -4,7 +4,7 @@
 # This script processes training and test data following the official approach
 
 WORK_DIR=$(pwd)
-LOCAL_DIR=$WORK_DIR/data/nq_hotpotqa_train
+LOCAL_DIR=/usr/yuque/guo/searchr1/data/nq_hotpotqa_train
 
 echo "============================================"
 echo "Processing NQ + HotpotQA Data (Official Method)"

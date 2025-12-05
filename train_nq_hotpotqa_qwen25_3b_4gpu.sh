@@ -8,7 +8,7 @@ data_name=nq_hotpotqa_train
 # ==================== GPU 配置 ====================
 # 指定使用 GPU 4,5,6,7（根据你的服务器配置）
 export CUDA_VISIBLE_DEVICES=4,5,6,7
-export DATA_DIR= 'data/${data_name}'
+export DATA_DIR=/usr/yuque/guo/searchr1/data/${data_name}
 
 # ==================== 模型配置 ====================
 # 选择你要训练的模型（取消注释一行）

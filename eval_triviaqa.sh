@@ -8,7 +8,7 @@ data_name=nq_hotpotqa_train
 # ==================== GPU 配置 ====================
 # 评估只需要单卡，使用 GPU 4
 export CUDA_VISIBLE_DEVICES=4
-export DATA_DIR=data/${data_name}
+export DATA_DIR=/usr/yuque/guo/searchr1/data/${data_name}
 
 # ==================== 模型配置 ====================
 # 选项 1: 使用训练好的本地检查点
