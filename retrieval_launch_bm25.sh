@@ -2,7 +2,7 @@
 # BM25 Retrieval Server Launcher for Linux
 # This script launches the BM25 retrieval service for Search-R1
 
-file_path=/path/to/wiki_data  # 修改为你的实际路径
+file_path=/usr/yuque/guo/searchr1/data/wiki_data
 index_file=$file_path/bm25
 corpus_file=$file_path/wiki-18.jsonl
 retriever_name=bm25

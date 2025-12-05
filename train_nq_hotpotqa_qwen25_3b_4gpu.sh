@@ -8,11 +8,11 @@ data_name=nq_hotpotqa_train
 # ==================== GPU 配置 ====================
 # 指定使用 GPU 4,5,6,7（根据你的服务器配置）
 export CUDA_VISIBLE_DEVICES=4,5,6,7
-export DATA_DIR=data/${data_name}
+export DATA_DIR= 'data/${data_name}'
 
 # ==================== 模型配置 ====================
 # 选择你要训练的模型（取消注释一行）
-export BASE_MODEL='Qwen/Qwen2.5-3B-Instruct'
+export BASE_MODEL='/usr/yuque/guo/models/qwen2.5-3b-instruct'
 export EXPERIMENT_NAME=${data_name}-search-r1-ppo-qwen2.5-3b-it-bm25-em
 
 # 其他可选模型：
