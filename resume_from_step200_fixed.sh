@@ -34,8 +34,9 @@ CHECKPOINT_DIR="/usr/yuque/guo/searchr1/verl_checkpoints/nq_hotpotqa_train-searc
 RESUME_FROM_STEP=200
 
 # Actor checkpoint (从 step 200 加载模型权重)
-ACTOR_CHECKPOINT="${CHECKPOINT_DIR}/global_step_${RESUME_FROM_STEP}/actor"
-CRITIC_CHECKPOINT="${CHECKPOINT_DIR}/global_step_${RESUME_FROM_STEP}/critic"
+# 注意：checkpoint 结构是 actor/global_step_200/ 而不是 global_step_200/actor/
+ACTOR_CHECKPOINT="${CHECKPOINT_DIR}/actor/global_step_${RESUME_FROM_STEP}"
+CRITIC_CHECKPOINT="${CHECKPOINT_DIR}/critic/global_step_${RESUME_FROM_STEP}"
 
 # ==================== WandB 配置 ====================
 WANDB_PROJECT="Search-R1-NQ-HotpotQA"
@@ -58,7 +59,8 @@ TOTAL_STEPS=1005
 echo "============================================"
 echo "Resume Training from Step ${RESUME_FROM_STEP}"
 echo "============================================"
-echo "Checkpoint: ${CHECKPOINT_DIR}/global_step_${RESUME_FROM_STEP}"
+echo "Actor Checkpoint: ${ACTOR_CHECKPOINT}"
+echo "Critic Checkpoint: ${CRITIC_CHECKPOINT}"
 echo "Data: $DATA_DIR"
 echo "Model: $BASE_MODEL"
 echo "Experiment: $EXPERIMENT_NAME"
@@ -74,13 +76,10 @@ echo "  - Test Freq: ${TEST_FREQ} (原: 100)"
 echo "============================================"
 echo ""
 
-# 检查 checkpoint 是否存在
-if [ ! -d "${CHECKPOINT_DIR}/global_step_${RESUME_FROM_STEP}" ]; then
-    echo "错误: Checkpoint 不存在!"
-    echo "路径: ${CHECKPOINT_DIR}/global_step_${RESUME_FROM_STEP}"
-    echo ""
-    echo "请检查以下目录:"
-    ls -la ${CHECKPOINT_DIR}/ 2>/dev/null || echo "Checkpoint 目录不存在"
+# 检查 Checkpoint 目录是否存在
+if [ ! -d "${CHECKPOINT_DIR}" ]; then
+    echo "错误: Checkpoint 根目录不存在!"
+    echo "路径: ${CHECKPOINT_DIR}"
     exit 1
 fi
 
