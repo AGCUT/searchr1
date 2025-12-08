@@ -71,11 +71,17 @@ def search_endpoint(request: SearchRequest):
         doc_scores = doc_scores[:request.topk_rerank]
         if request.return_scores:
             combined = []
-            for doc, score in doc_scores:
-                combined.append({"document": convert_title_format(doc), "score": score})
+            # Now doc_scores contains (doc_string, score, doc_item) tuples
+            for doc, score, doc_item in doc_scores:
+                combined.append({
+                    "document": convert_title_format(doc),
+                    "score": score,
+                    "doc_id": doc_item.get('id', None)  # Include doc ID if available
+                })
             response.append(combined)
         else:
-            response.append([convert_title_format(doc) for doc, _ in doc_scores])
+            # Extract doc_string from (doc_string, score, doc_item) tuples
+            response.append([convert_title_format(doc) for doc, _, _ in doc_scores])
 
     return {"result": response}
 

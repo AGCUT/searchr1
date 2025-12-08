@@ -29,33 +29,50 @@ class BaseCrossEncoder:
 
         return f"(Title: {title}) {text}"
 
-    def rerank(self, 
-               queries: list[str], 
-               documents: list[list[dict]]):
+    def rerank(self,
+               queries: list[str],
+               documents: list[list[dict]],
+               return_doc_item: bool = True):
         """
-        Assume documents is a list of list of dicts, where each dict is a document with keys "id" and "contents".
-        This asumption is made to be consistent with the output of the retrieval server.
-        """ 
+        Rerank documents for each query.
+
+        Args:
+            queries: List of query strings
+            documents: List of document lists (one per query), where each doc is a dict with "id" and "contents"
+            return_doc_item: If True, return (doc_string, score, doc_item). If False, return (doc_string, score) for backward compatibility.
+
+        Returns:
+            Dict mapping query_id to sorted list of tuples:
+            - If return_doc_item=True: (doc_string, score, doc_item)
+            - If return_doc_item=False: (doc_string, score)
+        """
         assert len(queries) == len(documents)
 
         pairs = []
         qids = []
-        for qid, query in enumerate(queries):
-            for document in documents:
-                for doc_item in document:
-                    doc = self._passage_to_string(doc_item)
-                    pairs.append((query, doc))
-                    qids.append(qid)
+        doc_items = []  # Store original doc_items for later use
+        for qid, (query, doc_list) in enumerate(zip(queries, documents)):
+            for doc_item in doc_list:
+                doc = self._passage_to_string(doc_item)
+                pairs.append((query, doc))
+                qids.append(qid)
+                doc_items.append(doc_item)  # Keep original structure
 
         scores = self._predict(pairs)
         query_to_doc_scores = defaultdict(list)
 
-        assert len(scores) == len(pairs) == len(qids)
+        assert len(scores) == len(pairs) == len(qids) == len(doc_items)
         for i in range(len(pairs)):
             query, doc = pairs[i]
-            score = scores[i] 
+            score = scores[i]
             qid = qids[i]
-            query_to_doc_scores[qid].append((doc, score))
+            doc_item = doc_items[i]
+            # Store based on return_doc_item flag
+            if return_doc_item:
+                query_to_doc_scores[qid].append((doc, score, doc_item))
+            else:
+                # Backward compatibility: return only (doc, score)
+                query_to_doc_scores[qid].append((doc, score))
 
         sorted_query_to_doc_scores = {}
         for query, doc_scores in query_to_doc_scores.items():
@@ -133,17 +150,23 @@ def rerank_endpoint(request: RerankRequest):
     # doc_scores already sorted by score
     query_to_doc_scores = reranker.rerank(request.queries, request.documents) 
 
-    # Format response 
+    # Format response
     resp = []
     for _, doc_scores in query_to_doc_scores.items():
         doc_scores = doc_scores[:request.rerank_topk]
         if request.return_scores:
-            combined = [] 
-            for doc, score in doc_scores:
-                combined.append({"document": doc, "score": score})
+            combined = []
+            # Now doc_scores contains (doc_string, score, doc_item) tuples
+            for doc, score, doc_item in doc_scores:
+                combined.append({
+                    "document": doc,
+                    "score": score,
+                    "doc_id": doc_item.get('id', None)  # Include doc ID if available
+                })
             resp.append(combined)
         else:
-            resp.append([doc for doc, _ in doc_scores])
+            # Extract doc_string from (doc_string, score, doc_item) tuples
+            resp.append([doc for doc, _, _ in doc_scores])
     return {"result": resp}
 
 
