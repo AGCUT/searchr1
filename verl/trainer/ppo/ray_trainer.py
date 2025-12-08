@@ -659,7 +659,16 @@ class RayPPOTrainer(object):
         """
 
         logger = self.logger
-        self.global_steps = 0
+
+        # Support resuming from checkpoint
+        resume_from_step = self.config.trainer.get('resume_from_step', 0)
+        self.global_steps = resume_from_step
+
+        if resume_from_step > 0:
+            print(f"=" * 60)
+            print(f"RESUMING TRAINING FROM STEP {resume_from_step}")
+            print(f"=" * 60)
+
         # perform validation before training
         # currently, we only support validation using the reward_function.
         if self.val_reward_fn is not None and self.config.trainer.get('val_before_train', True):
@@ -669,7 +678,7 @@ class RayPPOTrainer(object):
             if self.config.trainer.get('val_only', False):
                 return
 
-        # we start from step 1
+        # we start from step 1 (or resume_from_step + 1)
         self.global_steps += 1
 
         # Agent config preparation
@@ -693,7 +702,13 @@ class RayPPOTrainer(object):
 
         # start training loop
         for epoch in range(self.config.trainer.total_epochs):
-            for batch_dict in self.train_dataloader:
+            for batch_idx, batch_dict in enumerate(self.train_dataloader):
+                # Skip already trained steps when resuming
+                if resume_from_step > 0:
+                    current_step_in_training = epoch * len(self.train_dataloader) + batch_idx + 1
+                    if current_step_in_training <= resume_from_step:
+                        continue
+
                 print(f'epoch {epoch}, step {self.global_steps}')
                 metrics = {}
                 timing_raw = {}
