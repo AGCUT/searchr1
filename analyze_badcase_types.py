@@ -95,14 +95,59 @@ def extract_retrieved_docs(trajectory: str) -> List[str]:
     return docs
 
 
+def check_query_format_errors(trajectory: str) -> Tuple[bool, List[str]]:
+    """
+    检查是否存在查询格式错误
+
+    Returns:
+        (has_error, error_examples)
+    """
+    errors = []
+
+    # 检查错误格式 1: <search query="..."> </search>
+    pattern1 = r'<search\s+query="([^"]*)">\s*</search>'
+    matches1 = re.findall(pattern1, trajectory, re.IGNORECASE)
+    if matches1:
+        for match in matches1[:3]:  # 最多展示 3 个
+            errors.append(f'格式错误: <search query="{match}"> </search>')
+
+    # 检查错误格式 2: <search></search> (空查询)
+    pattern2 = r'<search>\s*</search>'
+    if re.search(pattern2, trajectory):
+        errors.append('格式错误: <search></search> (空查询)')
+
+    # 检查错误格式 3: <search>...(没有闭合标签)
+    pattern3 = r'<search>([^<]*?)(?:<think>|<answer>|$)'
+    matches3 = re.findall(pattern3, trajectory, re.DOTALL)
+    for match in matches3:
+        if '</search>' not in match and len(match.strip()) > 0:
+            query_preview = match.strip()[:50]
+            errors.append(f'格式错误: <search>{query_preview}... (未闭合)')
+            break  # 只展示第一个
+
+    # 检查错误格式 4: 查询太长或包含特殊结构（可能是误把整段话放进去）
+    pattern4 = r'<search>(.*?)</search>'
+    matches4 = re.findall(pattern4, trajectory, re.DOTALL)
+    for match in matches4:
+        if len(match) > 200:  # 查询超过 200 字符，异常
+            errors.append(f'查询过长: {len(match)} 字符 (正常应 < 50)')
+            break
+
+    return len(errors) > 0, errors
+
+
 def classify_badcase(result: Dict) -> BadCaseAnalysis:
     """
     分类 BadCase 的错误类型
 
     分类逻辑：
-    1. extracted_answer 为空 → "no_answer"（没有给出答案）
-    2. 检索文档中不包含正确答案 → "retrieval_error"（检索错误）
-    3. 检索文档中包含正确答案 → "reasoning_error"（推理错误）
+    0. 首先检查查询格式错误 → "query_format_error"
+    1. extracted_answer 为空：
+       1.1 检索到了正确答案 → "no_answer_with_correct_docs"（最关键！）
+       1.2 没检索到正确答案 → "no_answer_retrieval_error"
+    2. extracted_answer 不为空：
+       2.1 检索文档中不包含正确答案 → "retrieval_error"（检索错误）
+       2.2 检索文档中包含正确答案 → "reasoning_error"（推理错误）
     """
     question = result.get('question', '')
     golden_answer_str = result.get('golden_answer', '')
@@ -114,19 +159,6 @@ def classify_badcase(result: Dict) -> BadCaseAnalysis:
     # 解析正确答案
     golden_answers = parse_golden_answer(golden_answer_str)
 
-    # 类型 1：没有给出答案
-    if not extracted_answer or extracted_answer.strip() == "":
-        return BadCaseAnalysis(
-            question=question,
-            golden_answer=golden_answer_str,
-            extracted_answer=extracted_answer,
-            data_source=data_source,
-            num_searches=num_searches,
-            error_type="no_answer",
-            explanation=f"模型进行了 {num_searches} 次搜索，但没有生成 <answer> 标签",
-            full_trajectory=full_trajectory
-        )
-
     # 提取检索文档
     retrieved_docs = extract_retrieved_docs(full_trajectory)
     all_retrieved_text = "\n".join(retrieved_docs)
@@ -134,7 +166,49 @@ def classify_badcase(result: Dict) -> BadCaseAnalysis:
     # 检查正确答案是否在检索文档中
     found_in_docs, matched_answer = check_answer_in_text(golden_answers, all_retrieved_text)
 
-    # 类型 2：检索错误
+    # 类型 0：查询格式错误（优先检查）
+    has_query_error, query_errors = check_query_format_errors(full_trajectory)
+    if has_query_error:
+        error_detail = "; ".join(query_errors)
+        return BadCaseAnalysis(
+            question=question,
+            golden_answer=golden_answer_str,
+            extracted_answer=extracted_answer,
+            data_source=data_source,
+            num_searches=num_searches,
+            error_type="query_format_error",
+            explanation=f"查询格式错误导致搜索失败: {error_detail}",
+            full_trajectory=full_trajectory
+        )
+
+    # 类型 1：没有给出答案（细分为两种情况）
+    if not extracted_answer or extracted_answer.strip() == "":
+        if found_in_docs:
+            # 1.1 检索到了正确答案，但模型没生成 <answer>
+            return BadCaseAnalysis(
+                question=question,
+                golden_answer=golden_answer_str,
+                extracted_answer=extracted_answer,
+                data_source=data_source,
+                num_searches=num_searches,
+                error_type="no_answer_with_correct_docs",
+                explanation=f"模型进行了 {num_searches} 次搜索，检索到了包含正确答案 '{matched_answer}' 的文档，但没有生成 <answer> 标签",
+                full_trajectory=full_trajectory
+            )
+        else:
+            # 1.2 检索没找到正确答案，也没生成 <answer>
+            return BadCaseAnalysis(
+                question=question,
+                golden_answer=golden_answer_str,
+                extracted_answer=extracted_answer,
+                data_source=data_source,
+                num_searches=num_searches,
+                error_type="no_answer_retrieval_error",
+                explanation=f"模型进行了 {num_searches} 次搜索，检索文档中不包含正确答案 '{golden_answers[0]}'，且没有生成 <answer> 标签",
+                full_trajectory=full_trajectory
+            )
+
+    # 类型 2：给出了答案，但检索错误
     if not found_in_docs:
         return BadCaseAnalysis(
             question=question,
@@ -143,11 +217,11 @@ def classify_badcase(result: Dict) -> BadCaseAnalysis:
             data_source=data_source,
             num_searches=num_searches,
             error_type="retrieval_error",
-            explanation=f"模型进行了 {num_searches} 次搜索，但检索到的文档中不包含正确答案 '{golden_answers[0]}'",
+            explanation=f"模型进行了 {num_searches} 次搜索，但检索到的文档中不包含正确答案 '{golden_answers[0]}'，模型回答了 '{extracted_answer}'",
             full_trajectory=full_trajectory
         )
 
-    # 类型 3：推理错误
+    # 类型 3：给出了答案，检索也正确，但推理错误
     return BadCaseAnalysis(
         question=question,
         golden_answer=golden_answer_str,
@@ -198,12 +272,14 @@ def analyze_badcases(json_path: str, output_path: str = None, sample_size: int =
     print("-" * 100)
 
     type_info = {
-        "no_answer": "没有给出答案（未生成 <answer> 标签）",
-        "retrieval_error": "检索错误（文档中不含正确答案）",
-        "reasoning_error": "推理错误（检索到了但理解/提取错误）"
+        "query_format_error": "🔴【严重】查询格式错误（导致搜索失败）",
+        "no_answer_with_correct_docs": "🟠【重点】检索到正确答案，但没生成 <answer>",
+        "no_answer_retrieval_error": "🟡 检索错误 + 没生成 <answer>",
+        "retrieval_error": "🟢 检索错误（给出了错误答案）",
+        "reasoning_error": "🔵 推理错误（检索到了但理解/提取错误）"
     }
 
-    for error_type in ["no_answer", "retrieval_error", "reasoning_error"]:
+    for error_type in ["query_format_error", "no_answer_with_correct_docs", "no_answer_retrieval_error", "retrieval_error", "reasoning_error"]:
         count = len(error_types[error_type])
         percentage = count / total * 100
         info = type_info.get(error_type, "")
@@ -215,17 +291,19 @@ def analyze_badcases(json_path: str, output_path: str = None, sample_size: int =
     print("=" * 100)
     print()
 
-    print(f"{'数据源':<20} {'总错误':>10} {'无答案':>10} {'检索错':>10} {'推理错':>10}")
-    print("-" * 100)
+    print(f"{'数据源':<20} {'总错误':>10} {'格式错':>10} {'检索到无答案':>14} {'检索错无答案':>14} {'检索错':>10} {'推理错':>10}")
+    print("-" * 120)
 
     for source in sorted(source_error_types.keys()):
         stats = source_error_types[source]
         total_errors = sum(stats.values())
-        no_answer = stats.get('no_answer', 0)
+        query_err = stats.get('query_format_error', 0)
+        no_ans_correct = stats.get('no_answer_with_correct_docs', 0)
+        no_ans_retrieval = stats.get('no_answer_retrieval_error', 0)
         retrieval_err = stats.get('retrieval_error', 0)
         reasoning_err = stats.get('reasoning_error', 0)
 
-        print(f"{source:<20} {total_errors:>10} {no_answer:>10} {retrieval_err:>10} {reasoning_err:>10}")
+        print(f"{source:<20} {total_errors:>10} {query_err:>10} {no_ans_correct:>14} {no_ans_retrieval:>14} {retrieval_err:>10} {reasoning_err:>10}")
 
     # 保存详细报告
     if output_path is None:
@@ -241,7 +319,7 @@ def analyze_badcases(json_path: str, output_path: str = None, sample_size: int =
         f.write(f"准确率: {(len(results) - len(badcases)) / len(results) * 100:.2f}%\n\n")
 
         # 按错误类型分组展示
-        for error_type in ["no_answer", "retrieval_error", "reasoning_error"]:
+        for error_type in ["query_format_error", "no_answer_with_correct_docs", "no_answer_retrieval_error", "retrieval_error", "reasoning_error"]:
             cases = error_types[error_type]
             if not cases:
                 continue
@@ -250,6 +328,27 @@ def analyze_badcases(json_path: str, output_path: str = None, sample_size: int =
             f.write(f"{error_type.upper()}: {type_info[error_type]}\n")
             f.write(f"共 {len(cases)} 个样本 ({len(cases)/total*100:.1f}%)\n")
             f.write("=" * 100 + "\n\n")
+
+            # 特别标注重点关注的类型
+            if error_type == "query_format_error":
+                f.write("🔴 严重问题：模型生成了错误格式的查询，导致检索失败！\n")
+                f.write("    常见错误：\n")
+                f.write("    1. <search query=\"...\"> </search> (XML 属性格式，应该是 <search>...</search>)\n")
+                f.write("    2. <search></search> (空查询)\n")
+                f.write("    3. <search>... (没有闭合标签)\n")
+                f.write("    4. 查询过长（超过 200 字符）\n")
+                f.write("    解决方案：\n")
+                f.write("    - 检查 Prompt 是否给出了正确的格式示例\n")
+                f.write("    - 训练数据中是否有格式错误的样本\n")
+                f.write("    - 考虑增加格式约束的 reward\n\n")
+
+            elif error_type == "no_answer_with_correct_docs":
+                f.write("⚠️  重点关注：这些样本检索到了正确答案，但模型没有生成 <answer> 标签！\n")
+                f.write("    可能原因：\n")
+                f.write("    1. 达到 max_turns 限制，被强制停止\n")
+                f.write("    2. 模型判断信息不足，想继续搜索但不能了\n")
+                f.write("    3. 模型陷入循环搜索，忘记给答案\n")
+                f.write("    4. Prompt 或训练问题，模型没学会何时给答案\n\n")
 
             # 每种类型展示前 N 个样本
             for i, case in enumerate(cases[:sample_size], 1):
@@ -280,7 +379,9 @@ def analyze_badcases(json_path: str, output_path: str = None, sample_size: int =
     # 返回统计信息
     return {
         'total': total,
-        'no_answer': len(error_types['no_answer']),
+        'query_format_error': len(error_types['query_format_error']),
+        'no_answer_with_correct_docs': len(error_types['no_answer_with_correct_docs']),
+        'no_answer_retrieval_error': len(error_types['no_answer_retrieval_error']),
         'retrieval_error': len(error_types['retrieval_error']),
         'reasoning_error': len(error_types['reasoning_error']),
         'by_source': dict(source_error_types)
