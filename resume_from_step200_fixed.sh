@@ -45,11 +45,13 @@ WANDB_PROJECT="Search-R1-NQ-HotpotQA"
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
 # ==================== 优化后的超参数 ====================
-# 针对梯度爆炸问题的修改:
-ACTOR_LR=5e-7           # 原来: 1e-6, 减半防止过大更新
-CRITIC_LR=5e-6          # 原来: 1e-5, 减半
-KL_COEF=0.01            # 原来: 0.001, 增大10倍防止策略偏离
-MAX_GRAD_NORM=1.0       # 新增: 梯度裁剪，防止梯度爆炸
+# 针对 Step 294 突然梯度爆炸的修改:
+# 观察: grad_norm 从 400 突然跳到 9356 (23倍)
+# 策略: 更激进的防护 + 更保守的学习率
+ACTOR_LR=2e-7           # 原来: 1e-6, 降低到 20% (应对负reward问题)
+CRITIC_LR=2e-6          # 原来: 1e-5, 降低到 20%
+KL_COEF=0.03            # 原来: 0.001, 增大30倍强力约束策略
+GRAD_CLIP=0.3           # 原来: 1.0, 降低到30% (应对极端advantage)
 SAVE_FREQ=50            # 原来: 100, 更频繁保存
 TEST_FREQ=50            # 原来: 100, 更频繁验证
 
@@ -66,11 +68,11 @@ echo "Model: $BASE_MODEL"
 echo "Experiment: $EXPERIMENT_NAME"
 echo "GPUs: $CUDA_VISIBLE_DEVICES (4 GPUs)"
 echo ""
-echo "优化的超参数:"
-echo "  - Actor LR: ${ACTOR_LR} (原: 1e-6)"
-echo "  - Critic LR: ${CRITIC_LR} (原: 1e-5)"
-echo "  - KL Coef: ${KL_COEF} (原: 0.001)"
-echo "  - Max Grad Norm: ${MAX_GRAD_NORM} (新增)"
+echo "优化的超参数 (针对 Step 294 突然梯度爆炸):"
+echo "  - Actor LR: ${ACTOR_LR} (原: 1e-6, 降低70%)"
+echo "  - Critic LR: ${CRITIC_LR} (原: 1e-5, 降低70%)"
+echo "  - KL Coef: ${KL_COEF} (原: 0.001, 增大20倍)"
+echo "  - Grad Clip: ${GRAD_CLIP} (原: 1.0, 减半)"
 echo "  - Save Freq: ${SAVE_FREQ} (原: 100)"
 echo "  - Test Freq: ${TEST_FREQ} (原: 100)"
 echo "============================================"
@@ -115,7 +117,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=gae \
     actor_rollout_ref.model.path=${ACTOR_CHECKPOINT} \
     actor_rollout_ref.actor.optim.lr=${ACTOR_LR} \
-    +actor_rollout_ref.actor.optim.max_grad_norm=${MAX_GRAD_NORM} \
+    actor_rollout_ref.actor.grad_clip=${GRAD_CLIP} \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.0 \
@@ -135,7 +137,7 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.top_p=1.0 \
     actor_rollout_ref.actor.state_masking=true \
     critic.optim.lr=${CRITIC_LR} \
-    +critic.optim.max_grad_norm=${MAX_GRAD_NORM} \
+    critic.grad_clip=${GRAD_CLIP} \
     critic.model.use_remove_padding=True \
     critic.optim.lr_warmup_steps_ratio=0.0 \
     critic.model.path=${CRITIC_CHECKPOINT} \

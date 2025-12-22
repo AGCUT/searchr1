@@ -47,6 +47,11 @@ class EvalResult:
     full_trajectory: str
     data_source: str = ""  # nq / hotpotqa / triviaqa
 
+    # 多答案相关字段
+    all_answers: List[str] = field(default_factory=list)  # 所有答案
+    num_answers: int = 0  # 答案数量
+    answer_changed: bool = False  # 是否改变了答案
+
 
 @dataclass
 class EvalStats:
@@ -67,6 +72,14 @@ class EvalStats:
     avg_time: float = 0.0
     max_time: float = 0.0
     min_time: float = 0.0
+
+    # 答案一致性统计（新增）
+    samples_with_multiple_answers: int = 0  # 有多个答案的样本数
+    samples_with_changed_answers: int = 0   # 改变答案的样本数
+    answer_change_rate: float = 0.0         # 改变答案的比例
+    avg_answers_per_question: float = 0.0   # 平均每题多少个答案
+    accuracy_changed_answer: float = 0.0    # 改变答案的题目准确率
+    accuracy_single_answer: float = 0.0     # 单答案题目准确率
 
     # 按数据源统计
     by_source: Dict[str, dict] = field(default_factory=dict)
@@ -182,10 +195,36 @@ If you find no further external knowledge needed, you can directly provide the a
         matches = pattern.findall(text)
         return matches[-1] if matches else None
 
-    def _extract_answer(self, text: str) -> str:
-        """从文本中提取 answer"""
-        match = re.search(r'<answer>(.*?)</answer>', text, re.DOTALL)
-        return match.group(1).strip() if match else ""
+    def _extract_answer(self, text: str) -> Tuple[str, List[str], int, bool]:
+        """
+        从文本中提取 answer
+
+        返回:
+            - 最终答案（最后一个）
+            - 所有答案列表
+            - 答案数量
+            - 是否改变了答案
+        """
+        matches = re.findall(r'<answer>(.*?)</answer>', text, re.DOTALL)
+
+        if not matches:
+            return "", [], 0, False
+
+        # 清理所有答案
+        all_answers = [m.strip() for m in matches]
+
+        # 检查是否改变了答案（标准化后比较）
+        normalized_answers = [self._normalize_answer(a) for a in all_answers]
+        answer_changed = len(set(normalized_answers)) > 1
+
+        # 返回最后一个答案
+        return all_answers[-1], all_answers, len(all_answers), answer_changed
+
+    def _normalize_answer(self, text: str) -> str:
+        """标准化答案用于比较"""
+        text = re.sub(r'\s+', ' ', text.strip().lower())
+        text = re.sub(r'[^\w\s]', '', text)
+        return text
 
     def _check_correct(self, extracted: str, golden: str) -> bool:
         """检查答案是否正确"""
@@ -281,8 +320,8 @@ If you find no further external knowledge needed, you can directly provide the a
         end_time = time.time()
         response_time = end_time - start_time
 
-        # 提取答案并检查正确性
-        extracted_answer = self._extract_answer(full_trajectory)
+        # 提取答案并检查正确性（使用最后一个答案）
+        extracted_answer, all_answers, num_answers, answer_changed = self._extract_answer(full_trajectory)
         is_correct = self._check_correct(extracted_answer, golden_answer)
 
         return EvalResult(
@@ -293,7 +332,10 @@ If you find no further external knowledge needed, you can directly provide the a
             is_correct=is_correct,
             num_searches=num_searches,
             response_time=response_time,
-            full_trajectory=full_trajectory
+            full_trajectory=full_trajectory,
+            all_answers=all_answers,
+            num_answers=num_answers,
+            answer_changed=answer_changed
         )
 
     def evaluate_dataset(
@@ -369,6 +411,22 @@ If you find no further external knowledge needed, you can directly provide the a
             stats.max_time = max(all_times) if all_times else 0
             stats.min_time = min(all_times) if all_times else 0
 
+            # 答案一致性统计
+            total_answers = sum(r.num_answers for r in results)
+            stats.avg_answers_per_question = total_answers / stats.total_samples
+            stats.samples_with_multiple_answers = sum(1 for r in results if r.num_answers > 1)
+            stats.samples_with_changed_answers = sum(1 for r in results if r.answer_changed)
+            stats.answer_change_rate = stats.samples_with_changed_answers / stats.total_samples
+
+            # 改变答案 vs 单答案的准确率对比
+            changed_results = [r for r in results if r.answer_changed]
+            single_results = [r for r in results if r.num_answers == 1]
+
+            if changed_results:
+                stats.accuracy_changed_answer = sum(1 for r in changed_results if r.is_correct) / len(changed_results)
+            if single_results:
+                stats.accuracy_single_answer = sum(1 for r in single_results if r.is_correct) / len(single_results)
+
             # 按数据源的最终统计
             for source, s in source_stats.items():
                 if s['total'] > 0:
@@ -427,6 +485,24 @@ def print_stats(stats: EvalStats):
     print(f"  平均时间: {stats.avg_time:.2f} 秒/样本")
     print(f"  最长时间: {stats.max_time:.2f} 秒")
     print(f"  最短时间: {stats.min_time:.2f} 秒")
+
+    # 答案一致性统计
+    print(f"\n【答案一致性统计】")
+    print(f"  平均答案数/题: {stats.avg_answers_per_question:.2f}")
+    print(f"  多答案样本数: {stats.samples_with_multiple_answers} ({stats.samples_with_multiple_answers/stats.total_samples*100:.1f}%)")
+    print(f"  改变答案样本数: {stats.samples_with_changed_answers} ({stats.answer_change_rate*100:.1f}%)")
+
+    if stats.samples_with_changed_answers > 0:
+        print(f"\n  准确率对比:")
+        print(f"    改变答案的题目: {stats.accuracy_changed_answer*100:.2f}%")
+        print(f"    单答案的题目:   {stats.accuracy_single_answer*100:.2f}%")
+
+        # 计算差异
+        diff = (stats.accuracy_changed_answer - stats.accuracy_single_answer) * 100
+        if diff > 0:
+            print(f"    → 改变答案后准确率提高了 {diff:.2f}%")
+        else:
+            print(f"    → 改变答案后准确率降低了 {abs(diff):.2f}%")
 
     if stats.by_source:
         print(f"\n【按数据源统计】")
