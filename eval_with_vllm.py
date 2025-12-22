@@ -500,8 +500,8 @@ def save_results(results: List[EvalResult], stats: EvalStats, output_path: str):
         f.write("question,golden_answer,extracted_answer,is_correct,num_searches,response_time,data_source\n")
         for r in results:
             q = r.question.replace('"', '""')[:100]
-            g = str(r.golden_answer).replace('"', '""')[:50]
-            e = r.extracted_answer.replace('"', '""')[:50]
+            g = str(r.golden_answer).replace('"', '""')  # 不再截断
+            e = r.extracted_answer.replace('"', '""')  # 不再截断
             f.write(f'"{q}","{g}","{e}",{r.is_correct},{r.num_searches},{r.response_time:.2f},"{r.data_source}"\n')
 
     print(f"✓ CSV 已保存到: {csv_path}")
