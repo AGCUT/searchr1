@@ -206,6 +206,10 @@ If you find no further external knowledge needed, you can directly provide the a
         """检查答案是否正确"""
         extracted_lower = extracted.lower().strip()
 
+        # 如果没有提取到答案，直接返回 False
+        if not extracted_lower:
+            return False
+
         if isinstance(golden, list):
             golden_list = [str(g).strip().lower() for g in golden]
         else:
@@ -246,9 +250,17 @@ If you find no further external knowledge needed, you can directly provide the a
             output_text = outputs[0].outputs[0].text
             stop_reason = outputs[0].outputs[0].stop_reason
 
-            # 后处理：截断到第一个 </search> 或 </answer>
-            if '</search>' in output_text:
-                # 在 </search> 处截断
+            # 调试输出：打印原始生成结果
+            if turn == 0:
+                print(f"\n[DEBUG Turn {turn}] Raw output_text: {repr(output_text[:200])}")
+                print(f"[DEBUG Turn {turn}] Stop reason: {stop_reason}")
+
+            # vLLM 的 stop_reason 会是停止序列本身，或者 None (EOS/max_tokens)
+            if stop_reason == "</search>" or stop_reason == "stop":
+                # vLLM 遇到 </search> 停止，但不包含在 output_text 中，需要补上
+                output_text = output_text + "</search>"
+            elif '</search>' in output_text:
+                # 如果模型在 max_tokens 前生成了 </search>，截断
                 output_text = output_text.split('</search>')[0] + '</search>'
             elif '</answer>' in output_text:
                 # 在 </answer> 处截断（但不停止循环）
@@ -278,6 +290,13 @@ If you find no further external knowledge needed, you can directly provide the a
 
         extracted_answer, all_answers, num_answers, answer_changed = self._extract_answer(full_trajectory)
         is_correct = self._check_correct(extracted_answer, golden_answer)
+
+        # 调试输出：如果没有搜索或答案，打印完整轨迹
+        if num_searches == 0 or not extracted_answer:
+            print(f"\n[DEBUG] No searches or answers found!")
+            print(f"  num_searches: {num_searches}")
+            print(f"  extracted_answer: {repr(extracted_answer)}")
+            print(f"  full_trajectory: {repr(full_trajectory[:500])}")
 
         return EvalResult(
             question=question,
