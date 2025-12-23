@@ -460,10 +460,24 @@ If I want to give the final answer, I should put the answer between <answer> and
     def _passages2string(self, retrieval_result):
         format_reference = ''
         for idx, doc_item in enumerate(retrieval_result):
-            
-            content = doc_item['document']['contents']
-            title = content.split("\n")[0]
-            text = "\n".join(content.split("\n")[1:])
-            format_reference += f"Doc {idx+1}(Title: {title}) {text}\n"
+            # 兼容多种返回格式
+            if isinstance(doc_item, str):
+                # 直接是字符串
+                content = doc_item
+            elif isinstance(doc_item, dict):
+                doc = doc_item.get('document', '')
+                if isinstance(doc, dict):
+                    # {"document": {"contents": "..."}}
+                    content = doc.get('contents', '')
+                else:
+                    # {"document": "..."} 字符串格式
+                    content = doc
+            else:
+                content = str(doc_item)
+
+            if content:
+                title = content.split("\n")[0].strip('"')
+                text = "\n".join(content.split("\n")[1:])
+                format_reference += f"Doc {idx+1}(Title: {title}) {text}\n"
 
         return format_reference

@@ -9,10 +9,10 @@ vLLM 批量评估脚本 - 支持多卡并行推理
 3. 支持更大的 batch size
 
 使用方法：
-    CUDA_VISIBLE_DEVICES=1,2,6,7 python eval_with_vllm.py \
-        --model verl_checkpoints/xxx/actor/global_step_200 \
-        --data data/nq_hotpotqa_train/test_5k.parquet \
-        --output eval_results_vllm.json \
+    CUDA_VISIBLE_DEVICES=4,5,6,7 python eval_with_vllm.py \
+        --model verl_checkpoints/nq_hotpotqa_train-search-r1-ppo-qwen2.5-3b-it-bm25-em/actor/global_step_200 \
+        --data data/nq_hotpotqa_train/test_1k.parquet \
+        --output eval_results_vllm_bm25_rerank.json \
         --tensor_parallel_size 4
 """
 

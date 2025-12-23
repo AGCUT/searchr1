@@ -18,10 +18,17 @@ export CUDA_VISIBLE_DEVICES=0,1
 export FAISS_GPU_TEMP_MEM_GB=30
 
 # Paths - modify these to match your setup
-FILE_PATH=/usr/yuque/guo/search-r1/data/wiki-corpus
-BM25_INDEX=$FILE_PATH/bm25
-DENSE_INDEX=$FILE_PATH/e5_Flat.index
-CORPUS_FILE=$FILE_PATH/wiki-18.jsonl
+# BM25 索引和语料库
+BM25_INDEX=/usr/yuque/guo/searchr1/data/wiki_data/bm25
+BM25_CORPUS=/usr/yuque/guo/searchr1/data/wiki_data/wiki-18.jsonl
+
+# E5 索引和语料库
+DENSE_INDEX=/usr/yuque/guo/search-r1/data/wiki-corpus/e5_Flat.index
+DENSE_CORPUS=/usr/yuque/guo/search-r1/data/wiki-corpus/wiki-18.jsonl
+
+# 重排模型
+RERANKER_MODEL=/usr/yuque/guo/searchr1/models/BAAI/bge-reranker-base
+RERANKER_TYPE=bge_reranker
 
 # Dense model
 DENSE_MODEL=intfloat/e5-base-v2
@@ -36,27 +43,15 @@ RRF_K=60                # RRF parameter
 BM25_WEIGHT=1.0         # BM25 weight
 DENSE_WEIGHT=1.0        # Dense weight
 
-# Reranker settings - choose one:
-# Option 1: MS MARCO MiniLM (fast, good quality)
-RERANKER_MODEL=cross-encoder/ms-marco-MiniLM-L12-v2
-RERANKER_TYPE=sentence_transformer
-
-# Option 2: BGE Reranker (Chinese + English, very good quality)
-# RERANKER_MODEL=BAAI/bge-reranker-base
-# RERANKER_TYPE=bge_reranker
-
-# Option 3: BGE Reranker v2 (multilingual, best quality)
-# RERANKER_MODEL=BAAI/bge-reranker-v2-m3
-# RERANKER_TYPE=bge_reranker
-
 RERANKER_BATCH_SIZE=32
 
 echo "============================================================================"
 echo "Starting Hybrid + Rerank Retrieval Server"
 echo "============================================================================"
 echo "BM25 Index: $BM25_INDEX"
+echo "BM25 Corpus: $BM25_CORPUS"
 echo "Dense Index: $DENSE_INDEX"
-echo "Corpus: $CORPUS_FILE"
+echo "Dense Corpus: $DENSE_CORPUS"
 echo "Dense Model: $DENSE_MODEL"
 echo "Fusion: $FUSION_METHOD (k=$RRF_K)"
 echo "Weights: BM25=$BM25_WEIGHT, Dense=$DENSE_WEIGHT"
@@ -68,8 +63,9 @@ echo "==========================================================================
 # Launch server with reranking enabled
 python search_r1/search/retrieval_hybrid_server.py \
     --bm25_index_path $BM25_INDEX \
+    --bm25_corpus_path $BM25_CORPUS \
     --dense_index_path $DENSE_INDEX \
-    --corpus_path $CORPUS_FILE \
+    --dense_corpus_path $DENSE_CORPUS \
     --dense_model_path $DENSE_MODEL \
     --dense_model_type $DENSE_MODEL_TYPE \
     --topk $TOPK \

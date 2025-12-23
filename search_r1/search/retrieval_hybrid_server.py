@@ -568,16 +568,18 @@ if __name__ == "__main__":
 
     # BM25 配置
     parser.add_argument("--bm25_index_path", type=str, required=True, help="BM25索引路径")
+    parser.add_argument("--bm25_corpus_path", type=str, default=None, help="BM25语料库路径（可选，默认使用--corpus_path）")
 
     # Dense 配置
     parser.add_argument("--dense_index_path", type=str, required=True, help="Dense检索FAISS索引路径")
+    parser.add_argument("--dense_corpus_path", type=str, default=None, help="Dense语料库路径（可选，默认使用--corpus_path）")
     parser.add_argument("--dense_model_path", type=str, default="intfloat/e5-base-v2",
                        help="Dense检索模型路径")
     parser.add_argument("--dense_model_type", type=str, default="e5",
                        choices=["e5", "bge", "dpr"], help="Dense检索模型类型")
 
     # 通用配置
-    parser.add_argument("--corpus_path", type=str, required=True, help="语料库路径")
+    parser.add_argument("--corpus_path", type=str, default=None, help="语料库路径（当BM25和Dense使用相同语料库时）")
     parser.add_argument("--topk", type=int, default=3, help="默认返回文档数")
     parser.add_argument("--faiss_gpu", action="store_true", help="使用GPU加速FAISS")
 
@@ -597,6 +599,13 @@ if __name__ == "__main__":
     parser.add_argument("--reranker_batch_size", type=int, default=32, help="重排批处理大小")
 
     args = parser.parse_args()
+
+    # 处理语料库路径
+    bm25_corpus = args.bm25_corpus_path or args.corpus_path
+    dense_corpus = args.dense_corpus_path or args.corpus_path
+
+    if not bm25_corpus or not dense_corpus:
+        parser.error("必须指定语料库路径：使用 --corpus_path 或分别指定 --bm25_corpus_path 和 --dense_corpus_path")
 
     # 保存配置到全局变量
     fusion_method = FusionMethod(args.fusion_method)
@@ -618,7 +627,7 @@ if __name__ == "__main__":
     bm25_config = Config(
         retrieval_method="bm25",
         index_path=args.bm25_index_path,
-        corpus_path=args.corpus_path,
+        corpus_path=bm25_corpus,
         retrieval_topk=args.topk,
     )
     bm25_retriever = BM25Retriever(bm25_config)
@@ -628,7 +637,7 @@ if __name__ == "__main__":
     dense_config = Config(
         retrieval_method=args.dense_model_type,
         index_path=args.dense_index_path,
-        corpus_path=args.corpus_path,
+        corpus_path=dense_corpus,
         retrieval_topk=args.topk,
         faiss_gpu=args.faiss_gpu,
         retrieval_model_path=args.dense_model_path,
