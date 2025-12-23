@@ -443,9 +443,27 @@ If I want to give the final answer, I should put the answer between <answer> and
         Returns:
             search results which is concatenated into a string
         """
-        results = self._batch_search(queries)['result']
-        
-        return [self._passages2string(result) for result in results]
+        if not queries:
+            return []
+
+        try:
+            response = self._batch_search(queries)
+            results = response.get('result', [])
+
+            # 确保返回结果数量与查询数量一致
+            if len(results) != len(queries):
+                print(f"警告: 检索返回数量 ({len(results)}) 与查询数量 ({len(queries)}) 不匹配")
+                # 补齐或截断
+                if len(results) < len(queries):
+                    results.extend([[] for _ in range(len(queries) - len(results))])
+                else:
+                    results = results[:len(queries)]
+
+            return [self._passages2string(result) for result in results]
+        except Exception as e:
+            print(f"检索异常: {e}")
+            # 返回空结果
+            return ['' for _ in queries]
 
     def _batch_search(self, queries):
         

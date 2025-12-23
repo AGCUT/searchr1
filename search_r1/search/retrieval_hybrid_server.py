@@ -383,10 +383,16 @@ class HybridRetriever:
             query_list, num=retrieval_num, return_score=True, show_progress=show_progress
         )
 
+        # 确保候选数量与查询数量一致
+        if len(all_candidates) != len(query_list):
+            logger.warning(f"候选数量 ({len(all_candidates)}) 与查询数量 ({len(query_list)}) 不匹配，进行补齐")
+            while len(all_candidates) < len(query_list):
+                all_candidates.append([])
+
         # 第二阶段：批量重排
         reranked = self.reranker.rerank(query_list, all_candidates)
 
-        # 格式化结果
+        # 格式化结果，确保每个查询都有结果
         all_results = []
         all_scores = []
 
