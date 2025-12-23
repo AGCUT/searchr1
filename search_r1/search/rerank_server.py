@@ -101,22 +101,29 @@ class BaseCrossEncoder:
         qids = []
         doc_items = []
 
+        # 记录每个查询是否有文档
+        query_has_docs = [False] * len(queries)
+
         for qid, (query, doc_list) in enumerate(zip(queries, documents)):
+            if doc_list:
+                query_has_docs[qid] = True
             for doc_item in doc_list:
                 doc = self._passage_to_string(doc_item)
                 pairs.append((query, doc))
                 qids.append(qid)
                 doc_items.append(doc_item)
 
+        # 初始化结果字典，确保每个查询都有条目
+        query_to_doc_scores = {qid: [] for qid in range(len(queries))}
+
         if not pairs:
-            return {}
+            # 如果没有任何 pair，返回空结果字典
+            return query_to_doc_scores
 
         # 批量预测
         scores = self._predict(pairs)
 
         # 组织结果
-        query_to_doc_scores = defaultdict(list)
-
         for i in range(len(pairs)):
             _, doc = pairs[i]
             score = scores[i]
@@ -130,10 +137,11 @@ class BaseCrossEncoder:
 
         # 按分数排序
         sorted_query_to_doc_scores = {}
-        for qid, doc_scores in query_to_doc_scores.items():
+        for qid in range(len(queries)):
+            doc_scores = query_to_doc_scores[qid]
             sorted_query_to_doc_scores[qid] = sorted(
                 doc_scores, key=lambda x: x[1], reverse=True
-            )
+            ) if doc_scores else []
 
         return sorted_query_to_doc_scores
 

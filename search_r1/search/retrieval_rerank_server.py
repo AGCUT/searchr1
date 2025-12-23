@@ -205,22 +205,24 @@ def search_endpoint(request: SearchRequest):
         # Step 2: 重排阶段
         reranked = reranker.rerank(request.queries, retrieved_docs)
 
-        # Step 3: 格式化响应
+        # Step 3: 格式化响应，确保每个查询都有对应结果
         response = []
-        for i, doc_scores in reranked.items():
-            doc_scores = doc_scores[:topk_rerank]
+        for i in range(len(request.queries)):
+            doc_scores = reranked.get(i, [])[:topk_rerank]
 
             if request.return_scores:
                 combined = []
-                for doc, score, doc_item in doc_scores:
-                    combined.append({
-                        "document": convert_title_format(doc),
-                        "score": float(score),
-                        "doc_id": doc_item.get('id', None)
-                    })
+                for item in doc_scores:
+                    if len(item) >= 3:
+                        doc, score, doc_item = item
+                        combined.append({
+                            "document": convert_title_format(doc),
+                            "score": float(score),
+                            "doc_id": doc_item.get('id', None) if isinstance(doc_item, dict) else None
+                        })
                 response.append(combined)
             else:
-                response.append([convert_title_format(doc) for doc, _, _ in doc_scores])
+                response.append([convert_title_format(item[0]) for item in doc_scores if len(item) >= 3])
 
         return SearchResponse(
             result=response,
