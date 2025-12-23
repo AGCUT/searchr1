@@ -160,10 +160,25 @@ class Evaluator:
         """格式化检索结果"""
         formatted = []
         for idx, doc_item in enumerate(results):
-            content = doc_item.get('document', {}).get('contents', '')
+            # 兼容多种返回格式
+            if isinstance(doc_item, str):
+                # 直接是字符串
+                content = doc_item
+            elif isinstance(doc_item, dict):
+                # 字典格式
+                doc = doc_item.get('document', '')
+                if isinstance(doc, dict):
+                    # {"document": {"contents": "..."}}
+                    content = doc.get('contents', '')
+                else:
+                    # {"document": "..."} 字符串格式
+                    content = doc
+            else:
+                content = str(doc_item)
+
             if content:
                 parts = content.split("\n")
-                title = parts[0] if parts else ""
+                title = parts[0].strip('"') if parts else ""
                 text = "\n".join(parts[1:]) if len(parts) > 1 else ""
                 formatted.append(f"Doc {idx+1}(Title: {title}) {text}")
         return "\n".join(formatted)

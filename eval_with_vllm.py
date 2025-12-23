@@ -148,10 +148,25 @@ class VLLMEvaluator:
         """格式化检索结果"""
         formatted = []
         for idx, doc_item in enumerate(results):
-            content = doc_item.get('document', {}).get('contents', '')
+            # 兼容多种返回格式
+            if isinstance(doc_item, str):
+                # 直接是字符串
+                content = doc_item
+            elif isinstance(doc_item, dict):
+                # 字典格式
+                doc = doc_item.get('document', '')
+                if isinstance(doc, dict):
+                    # {"document": {"contents": "..."}}
+                    content = doc.get('contents', '')
+                else:
+                    # {"document": "..."} 字符串格式
+                    content = doc
+            else:
+                content = str(doc_item)
+
             if content:
                 parts = content.split("\n")
-                title = parts[0] if parts else ""
+                title = parts[0].strip('"') if parts else ""
                 text = "\n".join(parts[1:]) if len(parts) > 1 else ""
                 formatted.append(f"Doc {idx+1}(Title: {title}) {text}")
         return "\n".join(formatted)
@@ -284,6 +299,27 @@ If you find no further external knowledge needed, you can directly provide the a
             else:
                 # 既没有 search 也没有 answer，或者遇到 EOS，结束
                 break
+
+        # 如果达到 max_turns 还没有答案，强制生成一个答案
+        if num_searches > 0 and '</answer>' not in full_trajectory:
+            print(f"[WARNING] 达到 max_turns={self.max_turns} 但没有答案，强制生成答案...")
+
+            # 添加提示让模型给出最终答案
+            prompt += "\n\n<think>Based on the information gathered, I should now provide my final answer.</think>\n<answer>"
+
+            # 生成答案（不设置 stop，让模型生成到 </answer>）
+            sampling_params = SamplingParams(
+                temperature=self.temperature if self.temperature > 0 else 1.0,
+                max_tokens=100,
+                stop=["</answer>"],
+                skip_special_tokens=False
+            )
+
+            outputs = self.llm.generate([prompt], sampling_params)
+            answer_text = outputs[0].outputs[0].text
+
+            # 补全答案标签
+            full_trajectory += f"\n\n<think>Based on the information gathered, I should now provide my final answer.</think>\n<answer>{answer_text}</answer>"
 
         end_time = time.time()
         response_time = end_time - start_time
@@ -505,6 +541,39 @@ def save_results(results: List[EvalResult], stats: EvalStats, output_path: str):
             f.write(f'"{q}","{g}","{e}",{r.is_correct},{r.num_searches},{r.response_time:.2f},"{r.data_source}"\n')
 
     print(f"✓ CSV 已保存到: {csv_path}")
+
+    # 保存 BadCase 详细分析
+    badcase_path = output_path.replace('.json', '_badcases.txt')
+    incorrect_results = [r for r in results if not r.is_correct]
+
+    with open(badcase_path, 'w', encoding='utf-8') as f:
+        f.write("=" * 100 + "\n")
+        f.write(f"BadCase 分析报告 (共 {len(incorrect_results)} 个错误)\n")
+        f.write("=" * 100 + "\n\n")
+
+        for idx, r in enumerate(incorrect_results, 1):
+            f.write(f"\n{'=' * 100}\n")
+            f.write(f"BadCase #{idx}/{len(incorrect_results)}\n")
+            f.write(f"{'=' * 100}\n\n")
+
+            f.write(f"问题: {r.question}\n")
+            f.write(f"数据源: {r.data_source}\n")
+            f.write(f"标准答案: {r.golden_answer}\n")
+            f.write(f"模型答案: {r.extracted_answer}\n")
+            f.write(f"搜索次数: {r.num_searches}\n")
+            f.write(f"答案数量: {r.num_answers}\n")
+            f.write(f"是否改变答案: {'是' if r.answer_changed else '否'}\n")
+
+            if r.answer_changed:
+                f.write(f"所有答案: {r.all_answers}\n")
+
+            f.write(f"\n完整轨迹:\n")
+            f.write("-" * 100 + "\n")
+            f.write(r.full_trajectory)
+            f.write("\n" + "-" * 100 + "\n")
+
+    print(f"✓ BadCase 分析已保存到: {badcase_path}")
+    print(f"  共 {len(incorrect_results)} 个错误样本")
 
 
 def main():
