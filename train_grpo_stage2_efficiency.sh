@@ -41,7 +41,7 @@ echo "============================================"
 
 PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_grpo_stage2 \
     data.train_files=$DATA_DIR/train.parquet \
-    data.val_files=$DATA_DIR/test.parquet \
+    data.val_files=$DATA_DIR/test_5k.parquet \
     data.train_data_num=null \
     data.val_data_num=null \
     data.train_batch_size=256 \
@@ -56,12 +56,12 @@ PYTHONUNBUFFERED=1 python3 -m verl.trainer.main_grpo_stage2 \
     algorithm.lam=1.0 \
     algorithm.no_think_rl=false \
     actor_rollout_ref.model.path=$STAGE1_CHECKPOINT \
-    actor_rollout_ref.actor.optim.lr=5e-7 \
+    actor_rollout_ref.actor.optim.lr=1e-7 \
     actor_rollout_ref.model.enable_gradient_checkpointing=true \
     actor_rollout_ref.model.use_remove_padding=True \
     actor_rollout_ref.actor.optim.lr_warmup_steps_ratio=0.1 \
     actor_rollout_ref.actor.use_kl_loss=true \
-    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.actor.kl_loss_coef=0.05 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.ppo_mini_batch_size=128 \
     actor_rollout_ref.actor.ppo_micro_batch_size=32 \

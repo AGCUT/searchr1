@@ -76,6 +76,9 @@ class EfficiencyRewardManager:
         # 获取检索次数并计算效率奖励
         search_times = data.meta_info.get('search_times', [0] * len(data))
 
+        # 效率奖励缩放系数（降低效率奖励的影响，防止遗忘）
+        efficiency_scale = 0.2  # 效率奖励范围 [-0.2, +0.2]
+
         if len(search_times) > 0 and max(search_times) > 0:
             # 计算 95 分位数进行归一化
             percentile_95 = np.percentile(search_times, 95)
@@ -83,8 +86,8 @@ class EfficiencyRewardManager:
 
             scaled_times = []
             for t in search_times:
-                scaled_time = t * 0.5 / percentile_95
-                scaled_time = min(scaled_time, 0.5)
+                scaled_time = t * efficiency_scale / percentile_95
+                scaled_time = min(scaled_time, efficiency_scale)
                 scaled_times.append(scaled_time)
 
             avg_scaled_time = sum(scaled_times) / len(scaled_times)
