@@ -72,9 +72,29 @@ class EfficiencyRewardManager:
             return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        batch_size = len(data)
 
         # 获取检索次数并计算效率奖励
-        search_times = data.meta_info.get('search_times', [0] * len(data))
+        # 注意：框架中记录的是 valid_search_stats，不是 search_times
+        search_times = data.meta_info.get('valid_search_stats', None)
+        if search_times is None:
+            search_times = data.meta_info.get('search_times', None)
+
+        # 确保 search_times 长度与 batch_size 一致
+        if search_times is None:
+            search_times = [0] * batch_size
+            print(f"[Stage2-Warning] search_times not found in meta_info, using zeros")
+        elif len(search_times) != batch_size:
+            print(f"[Stage2-Warning] search_times length ({len(search_times)}) != batch_size ({batch_size})")
+            # 如果长度不匹配，可能是因为 n_agent > 1，尝试扩展
+            if batch_size % len(search_times) == 0:
+                repeat_factor = batch_size // len(search_times)
+                search_times = [t for t in search_times for _ in range(repeat_factor)]
+                print(f"[Stage2-Info] Expanded search_times by factor {repeat_factor}")
+            else:
+                # 无法对齐，使用 0
+                search_times = [0] * batch_size
+                print(f"[Stage2-Warning] Cannot align, using zeros")
 
         # 效率奖励缩放系数（降低效率奖励的影响，防止遗忘）
         efficiency_scale = 0.2  # 效率奖励范围 [-0.2, +0.2]
@@ -214,15 +234,14 @@ def main_task(config):
     tokenizer = hf_tokenizer(local_path)
 
     # define worker classes
+    # 注意：GRPO 不需要 Critic，所以不检查 critic.strategy
     if config.actor_rollout_ref.actor.strategy == 'fsdp':
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.workers.fsdp_workers import ActorRolloutRefWorker, CriticWorker
+        from verl.workers.fsdp_workers import ActorRolloutRefWorker
         from verl.single_controller.ray import RayWorkerGroup
         ray_worker_group_cls = RayWorkerGroup
 
     elif config.actor_rollout_ref.actor.strategy == 'megatron':
-        assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
-        from verl.workers.megatron_workers import ActorRolloutRefWorker, CriticWorker
+        from verl.workers.megatron_workers import ActorRolloutRefWorker
         from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
         ray_worker_group_cls = NVMegatronRayWorkerGroup
 
@@ -231,9 +250,9 @@ def main_task(config):
 
     from verl.trainer.ppo.ray_trainer import ResourcePoolManager, Role
 
+    # GRPO 只需要 ActorRollout 和 RefPolicy，不需要 Critic
     role_worker_mapping = {
         Role.ActorRollout: ray.remote(ActorRolloutRefWorker),
-        Role.Critic: ray.remote(CriticWorker),
         Role.RefPolicy: ray.remote(ActorRolloutRefWorker),
     }
 
@@ -243,7 +262,6 @@ def main_task(config):
     }
     mapping = {
         Role.ActorRollout: global_pool_id,
-        Role.Critic: global_pool_id,
         Role.RefPolicy: global_pool_id,
     }
 
